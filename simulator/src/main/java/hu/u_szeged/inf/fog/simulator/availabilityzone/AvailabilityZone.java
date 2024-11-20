@@ -4,13 +4,9 @@ import hu.mta.sztaki.lpds.cloud.simulator.iaas.PhysicalMachine;
 import hu.mta.sztaki.lpds.cloud.simulator.iaas.resourcemodel.ResourceConsumption;
 import hu.mta.sztaki.lpds.cloud.simulator.io.NetworkNode.NetworkException;
 import hu.mta.sztaki.lpds.cloud.simulator.io.Repository;
+import hu.mta.sztaki.lpds.cloud.simulator.io.StorageObject;
 import hu.mta.sztaki.lpds.cloud.simulator.Timed;
-import hu.mta.sztaki.lpds.cloud.simulator.DeferredEvent;
 
-/**
- * Represents an Availability Zone (AZ) in a cloud simulation.
- * Each AZ contains a repository, a physical machine, and geographical coordinates.
- */
 public class AvailabilityZone {
     private Repository repository;
     private PhysicalMachine pm;
@@ -18,174 +14,166 @@ public class AvailabilityZone {
     private double longitude;
     private String name;
 
-    /**
-     * Constructs an AvailabilityZone with the given properties.
-     *
-     * @param name       the name of the availability zone
-     * @param repository the repository associated with the availability zone
-     * @param pm         the physical machine in the availability zone
-     * @param latitude   the latitude of the availability zone
-     * @param longitude  the longitude of the availability zone
-     */
     public AvailabilityZone(String name, Repository repository, PhysicalMachine pm, double latitude, double longitude) {
         this.name = name;
         this.repository = repository;
         this.pm = pm;
         this.latitude = latitude;
         this.longitude = longitude;
+
     }
 
-    /**
-     * Gets the physical machine associated with this availability zone.
-     *
-     * @return the physical machine
-     */
+    public Repository getRepository() {
+        return repository;
+    }
+
     public PhysicalMachine getPm() {
         return pm;
     }
 
-    /**
-     * Gets the name of this availability zone.
-     *
-     * @return the name of the availability zone
-     */
     public String getName() {
         return name;
     }
 
-    /**
-     * Calculates the load of the physical machine.
-     *
-     * @return the load of the physical machine as a fraction of available CPU to total CPU
-     */
     public double getLoad() {
         double pmAvailableCpu = this.pm.availableCapacities.getRequiredCPUs();
         double pmTotalCpu = this.pm.getCapacities().getRequiredCPUs();
         return pmAvailableCpu / pmTotalCpu;
     }
 
-    /**
-     * Gets the latitude of this availability zone.
-     *
-     * @return the latitude
-     */
     public double getLatitude() {
         return latitude;
     }
 
-    /**
-     * Gets the longitude of this availability zone.
-     *
-     * @return the longitude
-     */
     public double getLongitude() {
         return longitude;
     }
 
-    /**
-     * Checks if the availability zone is currently available.
-     *
-     * @return true if the physical machine is running, false otherwise
-     */
     public boolean isAvailable() {
         return pm.getState() == PhysicalMachine.State.RUNNING;
     }
 
-    /**
-     * Calculates the distance between the availability zone and a user's location using the Haversine formula.
-     * https://www.geeksforgeeks.org/haversine-formula-to-find-distance-between-two-points-on-a-sphere/
-     *
-     * @param userLatitude  the user's latitude
-     * @param userLongitude the user's longitude
-     * @return the distance in kilometers
-     */
     public double calculateDistance(double userLatitude, double userLongitude) {
+        // Haversine formula to calculate distance in km
         double latDiff = Math.toRadians(latitude - userLatitude);
         double lonDiff = Math.toRadians(longitude - userLongitude);
         double a = Math.sin(latDiff / 2) * Math.sin(latDiff / 2) +
                 Math.cos(Math.toRadians(userLatitude)) * Math.cos(Math.toRadians(latitude)) *
                         Math.sin(lonDiff / 2) * Math.sin(lonDiff / 2);
         double c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-        return 6371 * c; // Earth's radius in kilometers
+        return 6371 * c; // Earth’s radius in km
     }
 
-    /**
-     * Reads data from the repository associated with this availability zone.
-     *
-     * @param request the user request initiating the read
-     * @param data    the data object to be read
-     */
-    public void readData(UserRequest request, DataObject data) {
-        if (repository.lookup(data.getName()) == null) {
-            System.out.println("Data " + data.getName() + " not found in repository " + repository.getName());
+    public void readData(Repository userRepo, StorageObject data, AvailabilityZone selectedZone) {
+        if (selectedZone.getRepository().lookup(data.id) == null) {
+            System.err.println("Data " + data.id + " not found in repository " + selectedZone.getRepository().getName());
             return;
         }
-
-        System.out.println("Initiating read of " + data.getName() + " from repository " + repository.getName());
-
+    
+        if (userRepo.lookup(data.id) != null) {
+            System.out.println("Removing existing data " + data.id + " from user repository: " + userRepo.getName());
+            userRepo.deregisterObject(data);
+        }
+    
+        System.out.println("Initiating download of " + data.id + " from repository " + selectedZone.getRepository().getName());
+    
         try {
-            repository.fetchObjectToMemory(data.toStorageObject(), new ResourceConsumption.ConsumptionEvent() {
-                @Override
-                public void conComplete() {
-                    long endTime = Timed.getFireCount();
-                    System.out.println(
-                            "Completed read of " + data.getName() + " from repository " + repository.getName() +
-                                    " at simulated time: " + endTime);
-                }
-
-                @Override
-                public void conCancelled(ResourceConsumption problematic) {
-                    System.out.println("Read of " + data.getName() + " from repository " + repository.getName()
-                            + " was cancelled.");
-                }
-            });
+            selectedZone.getRepository().requestContentDelivery(
+                data.id,
+                userRepo,
+                new ResourceConsumption.ConsumptionEvent() {
+                    @Override
+                    public void conComplete() {
+                        long endTime = Timed.getFireCount();
+                        System.out.println("Download of " + data.id + " completed from repository " +
+                                selectedZone.getRepository().getName() + " to user repository at simulated time: " + endTime);
+                    }
+    
+                    @Override
+                    public void conCancelled(ResourceConsumption problematic) {
+                        System.err.println("Download of " + data.id + " from repository " +
+                                selectedZone.getRepository().getName() + " to user repository was cancelled.");
+                    }
+                });
         } catch (NetworkException e) {
-            System.err.println("Failed to read data " + data.getName() + " due to network issues.");
+            System.err.println("Failed to download data " + data.id + " from repository " +
+                    selectedZone.getRepository().getName() + " due to network issues: " + e.getMessage());
+            e.printStackTrace();
         }
     }
+    
+    
+    
 
-    /**
-     * Writes data to the repository associated with this availability zone.
-     *
-     * @param request               the user request initiating the write
-     * @param data                  the data object to be written
-     * @param previousCompletionTime the time when the previous write completed
-     * @return the expected completion time of this write
-     */
-    public long writeData(UserRequest request, DataObject data, long previousCompletionTime) {
+    public long writeData(Repository userRepo, StorageObject data, long previousCompletionTime) {
+        // Wait until the previous completion time
         while (Timed.getFireCount() < previousCompletionTime) {
             Timed.simulateUntilLastEvent();
         }
 
-        System.out.println("Initiating write of " + data.getName() + " to repository " + repository.getName());
+        System.out.println("Initiating write of " + data.id + " to repository " + repository.getName());
 
-        boolean success = repository.registerObject(data.toStorageObject());
-        if (!success) {
-            System.err.println("Failed to write data " + data.getName() + ": not enough space in repository.");
+        // Check for free capacity before attempting to write
+        if (repository.getFreeStorageCapacity() < data.size) {
+            System.err.println("Not enough space in repository for data: " + data.id +
+                    "\nFree space: " + repository.getFreeStorageCapacity());
             return previousCompletionTime;
         }
 
-        long startTime = Timed.getFireCount();
+        // Check if the object already exists
+        if (repository.lookup(data.id) != null) {
+            System.err.println("Object " + data.id + " already exists in the repository.");
+            return previousCompletionTime;
+        }
 
-        new DeferredEvent(calculateTransferTime(data)) {
-            @Override
-            protected void eventAction() {
-                long endTime = Timed.getFireCount();
-                System.out.println("Completed write of " + data.getName() + " to repository " + repository.getName() +
-                        " at simulated time: " + endTime);
+        try {
+            // Request content delivery from the user repository to this AZ repository
+            ResourceConsumption consumption = userRepo.requestContentDelivery(
+                    data.id,
+                    repository,
+                    new ResourceConsumption.ConsumptionEvent() {
+                        @Override
+                        public void conComplete() {
+                            long endTime = Timed.getFireCount();
+                            System.out.println("Completed write of " + data.id +
+                                    " to repository " + repository.getName() +
+                                    " at simulated time: " + endTime);
+                        }
+
+                        @Override
+                        public void conCancelled(ResourceConsumption problematic) {
+                            System.err.println("Write of " + data.id + " to repository " + repository.getName() +
+                                    " was cancelled.");
+                        }
+                    });
+
+            if (consumption == null) {
+                System.err.println("Failed to initiate write for data " + data.id +
+                        ": Not enough space or already exists.");
+                return previousCompletionTime;
             }
-        };
 
-        return startTime + calculateTransferTime(data);
+            // Wait until the write operation is complete
+            long startTime = Timed.getFireCount();
+            long completionTime = startTime + consumption.getCompletionDistance();
+            while (Timed.getFireCount() < completionTime) {
+                Timed.simulateUntilLastEvent();
+            }
+
+            // Verify the data has been written
+            if (repository.lookup(data.id) == null) {
+                System.err.println("Data write completed, but object " + data.id + " is not found in the repository.");
+            } else {
+                System.out.println("Data " + data.id + " successfully written to " + repository.getName());
+            }
+
+            return completionTime;
+
+        } catch (NetworkException e) {
+            System.err.println("Failed to write data " + data.id + " due to network issues.");
+            e.printStackTrace();
+            return previousCompletionTime;
+        }
     }
 
-    /**
-     * Calculates the time required to transfer a data object to the repository.
-     *
-     * @param data the data object
-     * @return the transfer time in time units
-     */
-    private long calculateTransferTime(DataObject data) {
-        return data.getSize() / 1024; // Example rate: 1 KB per time unit
-    }
 }
