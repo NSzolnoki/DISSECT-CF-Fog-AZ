@@ -1,9 +1,9 @@
 package hu.u_szeged.inf.fog.simulator.availabilityzone;
 
-import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Random;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.stream.Collectors;
 
 import hu.mta.sztaki.lpds.cloud.simulator.io.NetworkNode.NetworkException;
@@ -15,10 +15,12 @@ import hu.mta.sztaki.lpds.cloud.simulator.iaas.resourcemodel.ResourceConsumption
 public class Region {
     private List<AvailabilityZone> zones;
     private SelectionStrategy selectionStrategy;
+    private List<StorageObject> availableStorageObjects;
 
     public Region(List<AvailabilityZone> zones, SelectionStrategy strategy) {
         this.zones = zones;
         this.selectionStrategy = strategy;
+        this.availableStorageObjects = new CopyOnWriteArrayList<>();
     }
 
     public enum SelectionStrategy {
@@ -27,15 +29,19 @@ public class Region {
         RANDOM // Select a random AZ
     }
 
-    public void handleReadRequest(Repository userRepo, StorageObject data, double userLatitude, double userLongitude) {
-        AvailabilityZone selectedZone = getSelectedZone(userLatitude, userLongitude);
-    
+    public List<StorageObject> getAvailableObjects(){
+        return availableStorageObjects;
+    }
+
+    public long handleReadRequest(PhysicalMachineWithLocation userPm, StorageObject data) {
+        AvailabilityZone selectedZone = getSelectedZone(userPm.getLocation().getLatitude(), userPm.getLocation().getLongitude());
         // Attempt to read data from the selected zone
         if (selectedZone != null && selectedZone.isAvailable()) {
-            System.out.println("Reading data from AZ located in " + selectedZone.getName());
-            selectedZone.readData(userRepo, data, selectedZone);
+            System.out.println(String.format("User from %s is reading data from AZ located in %s", userPm.getLocation().getCity(), selectedZone.getLocation().getCity()));
+            return selectedZone.readData(userPm, data, selectedZone);
         } else {
             System.out.println("Read request failed: No available AZs.");
+            return Timed.getFireCount(); // Return current time on failure
         }
     }
 
@@ -78,16 +84,16 @@ public class Region {
         return availableZones.get(index);
     }
 
-    public long handleWriteRequest(Repository userRepo, StorageObject data, double userLatitude, double userLongitude) {
-        AvailabilityZone selectedZone = getSelectedZone(userLatitude, userLongitude);
-    
+    public long handleWriteRequest(PhysicalMachineWithLocation userPm, StorageObject data) {
+        AvailabilityZone selectedZone = getSelectedZone(userPm.getLocation().getLatitude(), userPm.getLocation().getLongitude());
+        Repository userRepo = userPm.localDisk;
         if (selectedZone != null && selectedZone.isAvailable()) {
             System.out.println("Writing data to the selected AZ first: " + selectedZone.getName());
-    
+
             // Perform the first write operation
             long startTime = Timed.getFireCount();
             long firstWriteCompletionTime;
-    
+
             try {
                 ResourceConsumption consumption = userRepo.requestContentDelivery(
                         data.id,
@@ -96,21 +102,22 @@ public class Region {
                             @Override
                             public void conComplete() {
                                 long endTime = Timed.getFireCount();
-                                System.out.println("Data successfully written to AZ: " + selectedZone.getName() + 
+                                System.out.println("Data successfully written to AZ: " + selectedZone.getName() +
                                         " at simulated time: " + endTime);
                             }
-    
+
                             @Override
                             public void conCancelled(ResourceConsumption problematic) {
                                 System.err.println("Data write to AZ: " + selectedZone.getName() + " was cancelled.");
                             }
                         });
-    
+
                 if (consumption == null) {
-                    System.err.println("Write failed for AZ: " + selectedZone.getName() + ". Not enough space or error.");
+                    System.err
+                            .println("Write failed for AZ: " + selectedZone.getName() + ". Not enough space or error.");
                     return startTime;
                 }
-    
+
                 // Calculate the estimated completion time of the first write
                 firstWriteCompletionTime = startTime + consumption.getCompletionDistance();
             } catch (NetworkException e) {
@@ -118,14 +125,17 @@ public class Region {
                 e.printStackTrace();
                 return startTime;
             }
-    
-            // Wait for the first write to complete and ensure the data is registered in the repository
-            while (Timed.getFireCount() < firstWriteCompletionTime || selectedZone.getRepository().lookup(data.id) == null) {
+
+            // Wait for the first write to complete and ensure the data is registered in the
+            // repository
+            while (Timed.getFireCount() < firstWriteCompletionTime
+                    || selectedZone.getRepository().lookup(data.id) == null) {
                 Timed.simulateUntilLastEvent();
             }
-    
-            System.out.println("Initial write to AZ: " + selectedZone.getName() + " completed. Starting propagation...");
-    
+
+            System.out
+                    .println("Initial write to AZ: " + selectedZone.getName() + " completed. Starting propagation...");
+
             // Propagate data redundantly between other AZs
             for (AvailabilityZone zone : zones) {
                 if (zone != selectedZone && zone.isAvailable()) {
@@ -138,16 +148,17 @@ public class Region {
                                     @Override
                                     public void conComplete() {
                                         long endTime = Timed.getFireCount();
-                                        System.out.println("Data successfully propagated to AZ: " + zone.getName() +
+                                        System.out.println("Data with ID: " + data.id + " successfully propagated to AZ: " + zone.getName() +
                                                 " at simulated time: " + endTime);
                                     }
-    
+
                                     @Override
                                     public void conCancelled(ResourceConsumption problematic) {
-                                        System.err.println("Data propagation to AZ: " + zone.getName() + " was cancelled.");
+                                        System.err.println(
+                                                "Data propagation to AZ: " + zone.getName() + " was cancelled.");
                                     }
                                 });
-    
+
                         if (consumption == null) {
                             System.err.println("Failed to initiate propagation to AZ: " + zone.getName());
                         }
@@ -159,25 +170,23 @@ public class Region {
                     System.out.println("Skipping unavailable AZ: " + zone.getName());
                 }
             }
-    
-            System.out.println("Write request completed: Data stored redundantly across all available AZs.");
+
+            System.out.println("Write request completed: Data with ID: " + data.id + " stored redundantly across all available AZs.");
             return firstWriteCompletionTime;
         } else {
             System.out.println("Write request failed: No available AZs for initial write.");
             return Timed.getFireCount();
         }
     }
-    
-    
-    
 
-    public boolean isDataAvailableInAllAZs(String objectId) {
+    public boolean isDataAvailableInAllAZs(StorageObject storageObject) {
         for (AvailabilityZone zone : zones) {
-            if (zone.getRepository().lookup(objectId) == null) {
+            if (zone.getRepository().lookup(storageObject.id) == null) {
                 return false;
             }
         }
         System.out.println("Data is available in all AZs.");
+        availableStorageObjects.add(storageObject);
         return true;
     }
 
