@@ -1,6 +1,6 @@
 package hu.u_szeged.inf.fog.simulator.availabilityzone;
 
-import java.util.Random;
+import java.security.SecureRandom;
 
 public class Locations {
 
@@ -55,10 +55,11 @@ public class Locations {
             { "Brussels", 50.8503, 4.3517 }
     };
 
-    private static final Random RANDOM = new Random();
 
     public static Location getRandomLocation() {
-        int index = RANDOM.nextInt(LOCATIONS.length);
+        SecureRandom secureRandom = new SecureRandom();
+        int index = secureRandom.nextInt(LOCATIONS.length);
+
         Object[] locationData = LOCATIONS[index];
         return new Location((String) locationData[0], (double) locationData[1], (double) locationData[2]);
     }

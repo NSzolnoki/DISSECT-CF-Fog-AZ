@@ -4,6 +4,9 @@ import hu.mta.sztaki.lpds.cloud.simulator.iaas.resourcemodel.ResourceConsumption
 import hu.mta.sztaki.lpds.cloud.simulator.io.NetworkNode.NetworkException;
 import hu.mta.sztaki.lpds.cloud.simulator.io.Repository;
 import hu.mta.sztaki.lpds.cloud.simulator.io.StorageObject;
+
+import java.util.List;
+
 import hu.mta.sztaki.lpds.cloud.simulator.Timed;
 
 public class AvailabilityZone {
@@ -57,27 +60,25 @@ public class AvailabilityZone {
         return 6371 * c; // Earth’s radius in km
     }
 
-    public long readData(PhysicalMachineWithLocation userPm, StorageObject data, AvailabilityZone selectedZone) {
+    public long readData(PhysicalMachineWithLocation userPm, StorageObject data, AvailabilityZone selectedZone, long startTime) {
         if (selectedZone.getRepository().lookup(data.id) == null) {
-            System.err
-                    .println("Data " + data.id + " not found in repository " + selectedZone.getRepository().getName());
+            System.err.println("Data " + data.id + " not found in repository " + selectedZone.getRepository().getName());
             return Timed.getFireCount();
         }
+    
         Repository userRepo = userPm.localDisk;
         if (userRepo.lookup(data.id) != null) {
-            System.out.println("Removing existing data " + data.id + " from user repository: " + userRepo.getName());
+            System.out.println("Removing existing data " + data.id + " from user repository at: " + userPm.getLocation().getCity());
             userRepo.deregisterObject(data);
         }
-
+    
         if (userPm.localDisk.getFreeStorageCapacity() < data.size) {
-            System.err.println("Failed to initiate download for data " + data.id +
-                    ": Not enough space on the user repo.");
+            System.err.println("Failed to initiate download for data " + data.id + ": Not enough space on the user repo.");
             return Timed.getFireCount();
         }
-
-        System.out.println(
-                "Initiating download of " + data.id + " from repository " + selectedZone.getRepository().getName());
-
+    
+        System.out.println("Initiating download of " + data.id + " from repository " + selectedZone.getRepository().getName());
+        long _startTime = Timed.getFireCount();
         try {
             ResourceConsumption consumption = selectedZone.getRepository().requestContentDelivery(
                     data.id,
@@ -85,29 +86,30 @@ public class AvailabilityZone {
                     new ResourceConsumption.ConsumptionEvent() {
                         @Override
                         public void conComplete() {
-                            long endTime = Timed.getFireCount();
+                            long endTime = Timed.getFireCount(); // Capture end time
+                            long delta = endTime - _startTime;    // Compute delta
                             System.out.println("Download of " + data.id + " completed from repository " +
-                                    selectedZone.getLocation().getCity() + " to user repository at "
-                                    + userPm.getLocation().getCity() + " simulated time: " + endTime);
+                                    selectedZone.getLocation().getCity() + " to user repository at " +
+                                    userPm.getLocation().getCity() + ". Time taken: " + delta + " simulated seconds. File size: " + data.size);
+                                    Region.updateZoneUsage(selectedZone);
                         }
-
+    
                         @Override
                         public void conCancelled(ResourceConsumption problematic) {
                             System.err.println("Download of " + data.id + " from repository " +
-                                    selectedZone.getRepository().getName() + " to user repository at "
-                                    + userPm.getLocation().getCity() + " was cancelled.");
+                                    selectedZone.getRepository().getName() + " to user repository at " +
+                                    userPm.getLocation().getCity() + " was cancelled.");
                         }
                     });
-
+    
             if (consumption == null) {
-                System.err.println("Failed to initiate download for data " + data.id +
-                        ": Network error.");
+                System.err.println("Failed to initiate download for data " + data.id + ": Network error.");
                 return Timed.getFireCount();
             }
-
+            
             // Return the estimated completion time for the current operation
             return Timed.getFireCount() + consumption.getCompletionDistance();
-
+    
         } catch (NetworkException e) {
             System.err.println("Failed to download data " + data.id + " from repository " +
                     selectedZone.getRepository().getName() + " due to network issues: " + e.getMessage());
@@ -115,76 +117,98 @@ public class AvailabilityZone {
             return Timed.getFireCount();
         }
     }
+    
+    
 
-    public long writeData(Repository userRepo, StorageObject data, long previousCompletionTime) {
-        // Wait until the previous completion time
-        while (Timed.getFireCount() < previousCompletionTime) {
-            Timed.simulateUntilLastEvent();
-        }
+    public long writeData(PhysicalMachineWithLocation userPm, StorageObject data, List<AvailabilityZone> availabilityZones) {
 
-        System.out.println("Initiating write of " + data.id + " to repository " + repository.getName());
-
-        // Check for free capacity before attempting to write
-        if (repository.getFreeStorageCapacity() < data.size) {
-            System.err.println("Not enough space in repository for data: " + data.id +
-                    "\nFree space: " + repository.getFreeStorageCapacity());
-            return previousCompletionTime;
-        }
-
-        // Check if the object already exists
-        if (repository.lookup(data.id) != null) {
-            System.err.println("Object " + data.id + " already exists in the repository.");
-            return previousCompletionTime;
-        }
-
+        Repository userRepo = userPm.localDisk;
+        long startTime = Timed.getFireCount();
+    
+        System.out.println("Handling write request for data: " + data.id + " in AZ: " + this.name);
+    
+        // Perform the first write operation
+        long firstWriteCompletionTime;
+    
         try {
-            // Request content delivery from the user repository to this AZ repository
             ResourceConsumption consumption = userRepo.requestContentDelivery(
                     data.id,
-                    repository,
+                    this.repository,
                     new ResourceConsumption.ConsumptionEvent() {
                         @Override
                         public void conComplete() {
                             long endTime = Timed.getFireCount();
-                            System.out.println("Completed write of " + data.id +
-                                    " to repository " + repository.getName() +
+                            System.out.println("Data successfully written to AZ: " + name +
                                     " at simulated time: " + endTime);
+                                    Region.updateZoneUsage(availabilityZones.get(0));
                         }
-
+    
                         @Override
                         public void conCancelled(ResourceConsumption problematic) {
-                            System.err.println("Write of " + data.id + " to repository " + repository.getName() +
-                                    " was cancelled.");
+                            System.err.println("Data write to AZ: " + name + " was cancelled.");
                         }
                     });
-
+    
             if (consumption == null) {
-                System.err.println("Failed to initiate write for data " + data.id +
-                        ": Not enough space or already exists.");
-                return previousCompletionTime;
+                System.err.println("Write failed for AZ: " + name + ". Not enough space or error.");
+                return startTime;
             }
-
-            // Wait until the write operation is complete
-            long startTime = Timed.getFireCount();
-            long completionTime = startTime + consumption.getCompletionDistance();
-            while (Timed.getFireCount() < completionTime) {
-                Timed.simulateUntilLastEvent();
-            }
-
-            // Verify the data has been written
-            if (repository.lookup(data.id) == null) {
-                System.err.println("Data write completed, but object " + data.id + " is not found in the repository.");
-            } else {
-                System.out.println("Data " + data.id + " successfully written to " + repository.getName());
-            }
-
-            return completionTime;
-
+    
+            firstWriteCompletionTime = startTime + consumption.getCompletionDistance();
         } catch (NetworkException e) {
-            System.err.println("Failed to write data " + data.id + " due to network issues.");
+            System.err.println("Network exception occurred during write to AZ: " + name);
             e.printStackTrace();
-            return previousCompletionTime;
+            return startTime;
         }
+
+        
+    
+        while (Timed.getFireCount() < firstWriteCompletionTime || this.repository.lookup(data.id) == null) {
+            Timed.simulateUntilLastEvent();
+        }
+    
+        System.out.println("Initial write to AZ: " + this.name + " completed. Starting propagation...");
+    
+        // Propagate data redundantly between other AZs
+        for (AvailabilityZone zone : availabilityZones) {
+            if (zone != this && zone.isAvailable() && zone.getRepository().lookup(data.id) == null) {
+                try {
+                    System.out.println("Initiating propagation to AZ: " + zone.getName());
+                    ResourceConsumption consumption = this.repository.requestContentDelivery(
+                            data.id,
+                            zone.getRepository(),
+                            new ResourceConsumption.ConsumptionEvent() {
+                                @Override
+                                public void conComplete() {
+                                    long endTime = Timed.getFireCount();
+                                    System.out.println("Data successfully propagated to AZ: " + zone.getName() +
+                                            " at simulated time: " + endTime);
+                                            Region.updateZoneUsage(zone);
+                                }
+    
+                                @Override
+                                public void conCancelled(ResourceConsumption problematic) {
+                                    System.err.println("Data propagation to AZ: " + zone.getName() + " was cancelled.");
+                                }
+                            });
+    
+                    if (consumption == null) {
+                        System.err.println("Failed to initiate propagation to AZ: " + zone.getName());
+                    }
+                } catch (NetworkException e) {
+                    System.err.println("Network exception during propagation to AZ: " + zone.getName());
+                    e.printStackTrace();
+                }
+            } else if (!zone.isAvailable()) {
+                System.out.println("Skipping unavailable AZ: " + zone.getName());
+            }
+        }
+    
+        long endTime = Timed.getFireCount();
+        long delta = endTime - startTime;
+        System.out.println("Write request completed: Data with ID: " + data.id +
+                " stored redundantly across all available AZs. Time taken: " + delta + " simulated seconds.");
+        return firstWriteCompletionTime;
     }
 
 }
