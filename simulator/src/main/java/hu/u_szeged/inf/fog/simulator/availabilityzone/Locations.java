@@ -1,9 +1,12 @@
+/**
+ * Provides a list of predefined geographical locations and functionality for selecting random locations.
+ */
 package hu.u_szeged.inf.fog.simulator.availabilityzone;
 
 import java.security.SecureRandom;
 
 public class Locations {
-
+    // Predefined list of cities with their corresponding latitude and longitude
     private static final Object[][] LOCATIONS = {
             { "Budapest", 47.4979, 19.0402 },
             { "Paris", 48.8566, 2.3522 },
@@ -55,6 +58,11 @@ public class Locations {
             { "Brussels", 50.8503, 4.3517 }
     };
 
+    /**
+     * Selects a random location from the predefined list.
+     *
+     * @return a {@link Location} object representing a randomly selected location.
+     */
 
     public static Location getRandomLocation() {
         SecureRandom secureRandom = new SecureRandom();
@@ -64,29 +72,54 @@ public class Locations {
         return new Location((String) locationData[0], (double) locationData[1], (double) locationData[2]);
     }
 
+    /**
+     * Represents a geographical location with a city name, latitude, and longitude.
+     */
     public static class Location {
         private final String city;
         private final double latitude;
         private final double longitude;
 
+        /**
+         * Constructs a {@code Location} object.
+         *
+         * @param city      the name of the city
+         * @param latitude  the latitude of the location
+         * @param longitude the longitude of the location
+         */
         public Location(String city, double latitude, double longitude) {
             this.city = city;
             this.latitude = latitude;
             this.longitude = longitude;
         }
 
+        /**
+         * @return the name of the city.
+         */
         public String getCity() {
             return city;
         }
 
+        /**
+         * @return the latitude of the location.
+         */
         public double getLatitude() {
             return latitude;
         }
 
+        /**
+         * @return the longitude of the location.
+         */
         public double getLongitude() {
             return longitude;
         }
 
+        /**
+         * Provides a string representation of the location.
+         *
+         * @return a string representation of the location, including city, latitude,
+         *         and longitude.
+         */
         @Override
         public String toString() {
             return "Location{" +
