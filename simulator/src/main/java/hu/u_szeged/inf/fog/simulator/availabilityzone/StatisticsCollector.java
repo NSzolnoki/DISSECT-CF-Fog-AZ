@@ -5,7 +5,22 @@ import hu.u_szeged.inf.fog.simulator.availabilityzone.SelectionStrategyEnum.Sele
 import java.util.HashMap;
 import java.util.Map;
 
+/**
+ * A class for collecting and managing statistics related to write and read operations
+ * across Availability Zones (AZs) in a distributed system simulation.
+ * 
+ * The {@code StatisticsCollector} tracks:
+ * <ul>
+ *   <li>Total number of write and read operations</li>
+ *   <li>Time taken for these operations</li>
+ *   <li>Failures during read and write operations</li>
+ *   <li>Mapping of requests between users and AZs</li>
+ * </ul>
+ * This information can be used to analyze and evaluate the performance of different
+ * selection strategies for AZs.
+ */
 public class StatisticsCollector {
+
     private Map<String, Integer> writeRequestsPerAZ = new HashMap<>();
     private Map<String, Integer> readRequestsPerAZ = new HashMap<>();
     private Map<String, Long> totalWriteTimePerAZ = new HashMap<>();
@@ -23,6 +38,12 @@ public class StatisticsCollector {
     // Track all read requests with user location and AZ
     private Map<String, Integer> readsUserToAZ = new HashMap<>();
 
+    /**
+     * Logs a successful write operation to an AZ.
+     * 
+     * @param azName    the name of the AZ where the write operation occurred
+     * @param timeTaken the simulated time taken for the write operation
+     */
     public void logWrite(String azName, long timeTaken) {
         writeRequestsPerAZ.put(azName, writeRequestsPerAZ.getOrDefault(azName, 0) + 1);
         totalWriteTimePerAZ.put(azName, totalWriteTimePerAZ.getOrDefault(azName, 0L) + timeTaken);
@@ -30,6 +51,13 @@ public class StatisticsCollector {
         totalWriteTime += timeTaken;
     }
 
+    /**
+     * Logs a successful read operation from an AZ by a user.
+     * 
+     * @param userCity  the city of the user who initiated the read request
+     * @param azName    the name of the AZ from which the data was read
+     * @param timeTaken the simulated time taken for the read operation
+     */
     public void logRead(String userCity, String azName, long timeTaken) {
         readRequestsPerAZ.put(azName, readRequestsPerAZ.getOrDefault(azName, 0) + 1);
         totalReadTimePerAZ.put(azName, totalReadTimePerAZ.getOrDefault(azName, 0L) + timeTaken);
@@ -41,18 +69,39 @@ public class StatisticsCollector {
         readsUserToAZ.put(userToAZKey, readsUserToAZ.getOrDefault(userToAZKey, 0) + 1);
     }
 
+    /**
+     * Logs a failed read operation by a user.
+     * 
+     * @param userCity the city of the user who initiated the failed read request
+     * @param azName   the name of the AZ where the failure occurred
+     * @param dataId   the ID of the data that could not be read
+     */
     public void logReadFailure(String userCity, String azName, String dataId) {
         totalReadFailures++;
         readFailuresPerUser.put(userCity, readFailuresPerUser.getOrDefault(userCity, 0) + 1);
         readFailuresPerAZ.put(azName, readFailuresPerAZ.getOrDefault(azName, 0) + 1);
     }
 
+    /**
+     * Logs a failed write operation between two repositories.
+     * 
+     * @param sourceRepoCity the city of the repository initiating the write request
+     * @param targetRepoCity the city of the repository where the write failed
+     * @param dataId         the ID of the data that could not be written
+     */
     public void logWriteFailure(String sourceRepoCity, String targetRepoCity, String dataId) {
         totalReadFailures++;
         readFailuresPerUser.put(sourceRepoCity, readFailuresPerUser.getOrDefault(sourceRepoCity, 0) + 1);
         readFailuresPerAZ.put(targetRepoCity, readFailuresPerAZ.getOrDefault(targetRepoCity, 0) + 1);
     }
 
+    /**
+     * Prints a detailed report of the collected statistics, including information
+     * about read and write operations, failures, and selection strategies.
+     * 
+     * @param userStrategy the selection strategy used for user read operations
+     * @param azStrategy   the selection strategy used for AZ write operations
+     */
     public void printStatistics(SelectionStrategy userStrategy, SelectionStrategy azStrategy) {
         System.out.println("========== Simulation Statistics ==========");
         System.out.println("AZ write strategy: " + azStrategy.toString());

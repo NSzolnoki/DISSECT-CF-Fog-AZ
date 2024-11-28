@@ -11,9 +11,34 @@ import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.stream.Collectors;
 
 import hu.mta.sztaki.lpds.cloud.simulator.Timed;
+import hu.mta.sztaki.lpds.cloud.simulator.io.Repository;
 import hu.mta.sztaki.lpds.cloud.simulator.io.StorageObject;
 import hu.u_szeged.inf.fog.simulator.availabilityzone.SelectionStrategyEnum.SelectionStrategy;
-
+/**
+ * Represents a Region that manages a set of Availability Zones and handles 
+ * user requests for reading and writing data using various selection strategies.
+ *
+ * <p>
+ * The Region class is responsible for:
+ * <ul>
+ *     <li>Managing a collection of {@link AvailabilityZone}s.</li>
+ *     <li>Handling read and write requests for data using different strategies,
+ *     such as nearest, least-loaded, or most recently used zones.</li>
+ *     <li>Collecting and logging statistics about read/write requests and their latencies.</li>
+ *     <li>Ensuring data redundancy across all Availability Zones.</li>
+ * </ul>
+ * </p>
+ *
+ * <p>
+ * The Region uses a {@link StatisticsCollector} to log request details, and 
+ * a static map tracks the last usage time of each Availability Zone for strategies
+ * like MOST_RECENTLY_USED.
+ * </p>
+ *
+ * @see AvailabilityZone
+ * @see StatisticsCollector
+ * @see SelectionStrategyEnum.SelectionStrategy
+ */
 public class Region {
     private List<AvailabilityZone> zones;
     private SelectionStrategy selectionStrategy;
@@ -250,5 +275,34 @@ public class Region {
      */
     public static void updateZoneUsage(AvailabilityZone zone) {
         zoneLastUsage.put(zone, Timed.getFireCount());
+    }
+
+    /**
+     * Assigns random latencies between all pairs of repositories in the provided
+     * list.
+     * 
+     * <p>
+     * This method iterates through the provided list of {@code Repository} objects
+     * and assigns a random latency
+     * for communication between each pair of repositories. The latency values are
+     * randomly generated within a
+     * specified range using the provided {@code Random} instance. Latencies are
+     * only assigned between different
+     * repositories (i.e., no self-latency is added).
+     * </p>
+     *
+     * @param repositories the list of {@code Repository} objects between which
+     *                     latencies are to be assigned
+     * @param random       a {@code Random} instance used to generate random latency
+     *                     values
+     */
+    public void assignLatencies(List<Repository> repositories, Random random) {
+        for (Repository repo : repositories) {
+            for (Repository otherRepo : repositories) {
+                if (!repo.equals(otherRepo)) {
+                    repo.addLatencies(otherRepo.getName(), random.nextInt(300 - 30 + 1) + 30);
+                }
+            }
+        }
     }
 }

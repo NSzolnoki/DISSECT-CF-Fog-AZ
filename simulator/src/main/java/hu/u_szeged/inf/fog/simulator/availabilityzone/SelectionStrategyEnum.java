@@ -1,6 +1,8 @@
 package hu.u_szeged.inf.fog.simulator.availabilityzone;
 
-public class SelectionStrategyEnum {
+import hu.u_szeged.inf.fog.simulator.demo.AZExamples.test_ZoneSimulation_MultipleUsersAndFiles;
+
+public class SelectionStrategyEnum extends test_ZoneSimulation_MultipleUsersAndFiles {
 
     public enum SelectionStrategy {
         NEAREST,         // Select the closest AZ to the user

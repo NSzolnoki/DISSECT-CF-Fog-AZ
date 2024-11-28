@@ -14,11 +14,9 @@ public class test_ZoneSimulation_MultipleUsersAndFiles {
     // Global Random instance with a fixed seed for reproducibility
     private static final long SEED = 12345L; // You can change this seed for different random behaviors
     private static final Random GLOBAL_RANDOM = new Random(SEED);
-    
 
     private static final SelectionStrategy SelectedAZStrategy = SelectionStrategy.NEAREST;
     private static final SelectionStrategy SelectedUserStrategy = SelectionStrategy.LOWEST_LATENCY;
-
 
     public static void main(String[] args) throws Exception {
         System.out.println("Starting AWS-like Availability Zone simulation...");
@@ -76,10 +74,9 @@ public class test_ZoneSimulation_MultipleUsersAndFiles {
             allRepositories.add(userRepo);
         }
 
-        // Assign random latencies between all repositories
-        assignLatencies(allRepositories, GLOBAL_RANDOM);
-
         Region region = new Region(zones, SelectedAZStrategy);
+        // Assign random latencies between all repositories
+        region.assignLatencies(allRepositories, GLOBAL_RANDOM);
 
         // Generate 100 files randomly
         List<StorageObject> files = new ArrayList<>();
@@ -104,6 +101,7 @@ public class test_ZoneSimulation_MultipleUsersAndFiles {
             while (!region.isDataAvailableInAllAZs(randomFileToWrite)) {
                 Timed.simulateUntilLastEvent();
             }
+
 
             List<StorageObject> availableStorageObjects = region.getAvailableObjects();
             StorageObject randomFileToRead = availableStorageObjects
@@ -143,13 +141,4 @@ public class test_ZoneSimulation_MultipleUsersAndFiles {
         region.statisticsCollector.printStatistics(SelectedUserStrategy, SelectedAZStrategy);
     }
 
-    private static void assignLatencies(List<Repository> repositories, Random random) {
-        for (Repository repo : repositories) {
-            for (Repository otherRepo : repositories) {
-                if (!repo.equals(otherRepo)) {
-                    repo.addLatencies(otherRepo.getName(), random.nextInt(300 - 30 + 1) + 30);
-                }
-            }
-        }
-    }
 }

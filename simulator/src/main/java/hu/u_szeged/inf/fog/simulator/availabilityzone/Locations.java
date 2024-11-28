@@ -7,6 +7,7 @@ import java.security.SecureRandom;
 import java.util.Random;
 
 public class Locations {
+
     // Predefined list of cities with their corresponding latitude and longitude
     private static final Object[][] LOCATIONS = {
             { "Budapest", 47.4979, 19.0402 },
@@ -64,7 +65,6 @@ public class Locations {
      *
      * @return a {@link Location} object representing a randomly selected location.
      */
-
     public static Location getRandomLocation(Random random) {
         // If no seed is provided, use SecureRandom for randomness
         Random effectiveRandom = (random != null) ? random : new SecureRandom();
