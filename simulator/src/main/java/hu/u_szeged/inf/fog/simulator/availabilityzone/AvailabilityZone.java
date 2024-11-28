@@ -117,7 +117,7 @@ public class AvailabilityZone {
      * @return the simulated completion time of the operation.
      */
     public long readData(PhysicalMachineWithLocation userPm, StorageObject data, AvailabilityZone selectedZone,
-            long startTime) {
+            long startTime, StatisticsCollector statistics) {
         if (selectedZone.getRepository().lookup(data.id) == null) {
             System.err
                     .println("Data " + data.id + " not found in repository " + selectedZone.getRepository().getName());
@@ -134,6 +134,7 @@ public class AvailabilityZone {
         if (userPm.localDisk.getFreeStorageCapacity() < data.size) {
             System.err.println(
                     "Failed to initiate download for data " + data.id + ": Not enough space on the user repo.");
+            statistics.logReadFailure(userPm.getLocation().getCity(), "NO AVAILABLE FREE SPACE", data.id);
             return Timed.getFireCount();
         }
 
@@ -154,6 +155,8 @@ public class AvailabilityZone {
                                     userPm.getLocation().getCity() + ". Time taken: " + delta
                                     + " simulated seconds. File size: " + data.size);
                             Region.updateZoneUsage(selectedZone);
+                            statistics.logRead(userPm.getLocation().getCity(), selectedZone.getLocation().getCity(),
+                                    delta);
                         }
 
                         @Override
@@ -166,6 +169,7 @@ public class AvailabilityZone {
 
             if (consumption == null) {
                 System.err.println("Failed to initiate download for data " + data.id + ": Network error.");
+                statistics.logReadFailure(userPm.getLocation().getCity(), "NETWORK ERROR", data.id);
                 return Timed.getFireCount();
             }
 
@@ -175,6 +179,7 @@ public class AvailabilityZone {
         } catch (NetworkException e) {
             System.err.println("Failed to download data " + data.id + " from repository " +
                     selectedZone.getRepository().getName() + " due to network issues: " + e.getMessage());
+            statistics.logReadFailure(userPm.getLocation().getCity(), "NETWORK ERROR", data.id);
             e.printStackTrace();
             return Timed.getFireCount();
         }
@@ -192,7 +197,7 @@ public class AvailabilityZone {
      */
 
     public long writeData(PhysicalMachineWithLocation userPm, StorageObject data,
-            List<AvailabilityZone> availabilityZones) {
+            List<AvailabilityZone> availabilityZones, StatisticsCollector statisticsCollector) {
 
         Repository userRepo = userPm.localDisk;
         long startTime = Timed.getFireCount();
@@ -212,6 +217,8 @@ public class AvailabilityZone {
                             long endTime = Timed.getFireCount();
                             System.out.println("Data successfully written to AZ: " + name +
                                     " at simulated time: " + endTime);
+                            statisticsCollector.logWrite(availabilityZones.get(0).getLocation().getCity(),
+                                    endTime - startTime);
                             Region.updateZoneUsage(availabilityZones.get(0));
                         }
 
@@ -223,12 +230,14 @@ public class AvailabilityZone {
 
             if (consumption == null) {
                 System.err.println("Write failed for AZ: " + name + ". Not enough space or error.");
+                statisticsCollector.logWriteFailure(userPm.getLocation().getCity(), "NOT ENOUGH SPACE", data.id);
                 return startTime;
             }
 
             firstWriteCompletionTime = startTime + consumption.getCompletionDistance();
         } catch (NetworkException e) {
             System.err.println("Network exception occurred during write to AZ: " + name);
+            statisticsCollector.logWriteFailure(userPm.getLocation().getCity(), "NETWORK ERROR", data.id);
             e.printStackTrace();
             return startTime;
         }
@@ -253,7 +262,9 @@ public class AvailabilityZone {
                                     long endTime = Timed.getFireCount();
                                     System.out.println("Data successfully propagated to AZ: " + zone.getName() +
                                             " at simulated time: " + endTime);
+                                    statisticsCollector.logWrite(zone.getLocation().getCity(), endTime - startTime);
                                     Region.updateZoneUsage(zone);
+
                                 }
 
                                 @Override
@@ -267,6 +278,7 @@ public class AvailabilityZone {
                     }
                 } catch (NetworkException e) {
                     System.err.println("Network exception during propagation to AZ: " + zone.getName());
+                    statisticsCollector.logWriteFailure(userPm.getLocation().getCity(), "NETWORK ERROR", data.id);
                     e.printStackTrace();
                 }
             } else if (!zone.isAvailable()) {

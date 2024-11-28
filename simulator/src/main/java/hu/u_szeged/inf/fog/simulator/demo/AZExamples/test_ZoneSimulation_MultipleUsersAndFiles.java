@@ -7,12 +7,18 @@ import hu.mta.sztaki.lpds.cloud.simulator.io.Repository;
 import hu.mta.sztaki.lpds.cloud.simulator.io.StorageObject;
 import hu.mta.sztaki.lpds.cloud.simulator.util.PowerTransitionGenerator;
 import hu.u_szeged.inf.fog.simulator.availabilityzone.*;
+import hu.u_szeged.inf.fog.simulator.availabilityzone.SelectionStrategyEnum.SelectionStrategy;
 
 public class test_ZoneSimulation_MultipleUsersAndFiles {
 
     // Global Random instance with a fixed seed for reproducibility
     private static final long SEED = 12345L; // You can change this seed for different random behaviors
     private static final Random GLOBAL_RANDOM = new Random(SEED);
+    
+
+    private static final SelectionStrategy SelectedAZStrategy = SelectionStrategy.NEAREST;
+    private static final SelectionStrategy SelectedUserStrategy = SelectionStrategy.LOWEST_LATENCY;
+
 
     public static void main(String[] args) throws Exception {
         System.out.println("Starting AWS-like Availability Zone simulation...");
@@ -45,7 +51,8 @@ public class test_ZoneSimulation_MultipleUsersAndFiles {
             allRepositories.add(repo);
         }
 
-        System.out.println("========================== Creating and turning on User machines ==========================");
+        System.out
+                .println("========================== Creating and turning on User machines ==========================");
         List<Repository> userRepos = new ArrayList<>();
         List<PhysicalMachineWithLocation> userPMs = new ArrayList<>();
         for (int i = 1; i <= 10; i++) {
@@ -72,7 +79,7 @@ public class test_ZoneSimulation_MultipleUsersAndFiles {
         // Assign random latencies between all repositories
         assignLatencies(allRepositories, GLOBAL_RANDOM);
 
-        Region region = new Region(zones, Region.SelectionStrategy.NEAREST);
+        Region region = new Region(zones, SelectedAZStrategy);
 
         // Generate 100 files randomly
         List<StorageObject> files = new ArrayList<>();
@@ -102,7 +109,7 @@ public class test_ZoneSimulation_MultipleUsersAndFiles {
             StorageObject randomFileToRead = availableStorageObjects
                     .get(GLOBAL_RANDOM.nextInt(availableStorageObjects.size()));
             long readCompletionTime = region.handleReadRequest(randomUserPm, randomFileToRead,
-                    Region.SelectionStrategy.LEAST_LOADED);
+                    SelectedUserStrategy);
 
             while (Timed.getFireCount() < readCompletionTime) {
                 Timed.simulateUntilLastEvent();
@@ -128,11 +135,12 @@ public class test_ZoneSimulation_MultipleUsersAndFiles {
             StorageObject randomFileToRead = availableStorageObjects
                     .get(GLOBAL_RANDOM.nextInt(availableStorageObjects.size()));
 
-            region.handleReadRequest(randomUserPm, randomFileToRead, Region.SelectionStrategy.LEAST_LOADED);
+            region.handleReadRequest(randomUserPm, randomFileToRead, SelectedUserStrategy);
             Timed.simulateUntilLastEvent();
         }
 
         System.out.println("AWS-like Availability Zone simulation completed.");
+        region.statisticsCollector.printStatistics(SelectedUserStrategy, SelectedAZStrategy);
     }
 
     private static void assignLatencies(List<Repository> repositories, Random random) {

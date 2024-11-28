@@ -12,11 +12,13 @@ import java.util.stream.Collectors;
 
 import hu.mta.sztaki.lpds.cloud.simulator.Timed;
 import hu.mta.sztaki.lpds.cloud.simulator.io.StorageObject;
+import hu.u_szeged.inf.fog.simulator.availabilityzone.SelectionStrategyEnum.SelectionStrategy;
 
 public class Region {
     private List<AvailabilityZone> zones;
     private SelectionStrategy selectionStrategy;
     private List<StorageObject> availableStorageObjects;
+    public StatisticsCollector statisticsCollector = new StatisticsCollector();
 
     // Map to track the last usage time of each AZ
     private static Map<AvailabilityZone, Long> zoneLastUsage;
@@ -35,16 +37,6 @@ public class Region {
         Region.zoneLastUsage = new ConcurrentHashMap<>();
         // Initialize usage timestamps for all zones
         zones.forEach(zone -> zoneLastUsage.put(zone, 0L));
-    }
-
-    /**
-     * Represents the strategy for selecting an availability zone.
-     */
-    public enum SelectionStrategy {
-        NEAREST, // Select the closest AZ to the user
-        LEAST_LOADED, // Select the AZ with the lowest load
-        RANDOM, // Select a random AZ
-        MOST_RECENTLY_USED // Select the most recently used AZ
     }
 
     /**
@@ -69,12 +61,18 @@ public class Region {
 
         List<AvailabilityZone> availabilityZones = getSelectedZone(userPm, selectionStrategy, zones);
         if (availabilityZones.size() > 0) {
+            AvailabilityZone selectedZone = availabilityZones.get(0);
 
             System.out.println(String.format("User from %s is reading data from AZ located in %s",
-                    userPm.getLocation().getCity(), availabilityZones.get(0).getLocation().getCity()));
-            return availabilityZones.get(0).readData(userPm, data, availabilityZones.get(0), startTime); // Pass start
-                                                                                                         // time
+                    userPm.getLocation().getCity(), selectedZone.getLocation().getCity()));
+
+            long readCompletionTime = selectedZone.readData(userPm, data, selectedZone, startTime, statisticsCollector);
+
+            return readCompletionTime; // Pass back the completion time
         } else {
+            // Log the failed read operation in statistics
+            statisticsCollector.logReadFailure(userPm.getLocation().getCity(), "NO AVAILABLE ZONE", data.id);
+
             System.out.println("Read request failed: No available AZs.");
             return Timed.getFireCount();
         }
@@ -99,9 +97,44 @@ public class Region {
                 return findRandomAZ();
             case MOST_RECENTLY_USED:
                 return findMostRecentlyUsedAZ(selecteableZone);
+            case LOWEST_LATENCY:
+                return findZonesByLatency(pm.localDisk.getName());
             default:
                 return null;
         }
+    }
+
+    /**
+     * Finds and returns a list of availability zones sorted by their latency to a
+     * specified target repository.
+     * Only zones that are currently available are included in the result.
+     *
+     * <p>
+     * This method retrieves the latency from each zone's repository to the
+     * specified target repository
+     * and sorts the zones in ascending order of latency. If a latency value is
+     * missing for a zone,
+     * it defaults to {@code Integer.MAX_VALUE}, placing such zones at the end of
+     * the list.
+     * </p>
+     *
+     * @param targetRepoName the name of the target repository for which latency is
+     *                       calculated
+     * @return a list of {@code AvailabilityZone} objects sorted by latency to the
+     *         specified target repository,
+     *         including only zones that are currently available
+     */
+    private List<AvailabilityZone> findZonesByLatency(String targetRepoName) {
+        // Sort zones by latency to the target repository and filter available zones
+        return zones.stream()
+                .filter(AvailabilityZone::isAvailable) // Only include available zones
+                .sorted(Comparator.comparingInt(zone -> {
+                    // Get the latency for each zone's repository to the target repository
+                    Map<String, Integer> latencies = zone.getPm().localDisk.getLatencies();
+                    return latencies.getOrDefault(targetRepoName, Integer.MAX_VALUE); // Default to a high value if
+                                                                                      // latency is missing
+                }))
+                .collect(Collectors.toList());
     }
 
     /**
@@ -172,12 +205,21 @@ public class Region {
      * @return the simulated completion time of the write operation.
      */
     public long handleWriteRequest(PhysicalMachineWithLocation userPm, StorageObject data) {
+        // Step 1: Select the AZs using the selection strategy
         List<AvailabilityZone> availabilityZones = getSelectedZone(userPm, this.selectionStrategy, zones);
 
         if (availabilityZones.size() > 0) {
+            // Step 2: Get the selected AZ for the initial write
+            AvailabilityZone selectedZone = availabilityZones.get(0);
 
-            return availabilityZones.get(0).writeData(userPm, data, zones); // Delegate write logic to AZ
+            // Step 4: Perform the write operation
+            long completionTime = selectedZone.writeData(userPm, data, zones, statisticsCollector);
+
+            // Return the completion time for further processing
+            return completionTime;
         } else {
+            // Step 7: Log a failure case for write request
+            statisticsCollector.logWriteFailure(userPm.getLocation().getCity(), "NO AVAILABLE ZONE", data.id);
             System.out.println("Write request failed: No available AZs for write.");
             return Timed.getFireCount();
         }
