@@ -1,24 +1,18 @@
 package hu.u_szeged.inf.fog.simulator.demo.AZExamples;
 
-import java.util.ArrayList;
-import java.util.EnumMap;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Random;
-
+import java.util.*;
 import hu.mta.sztaki.lpds.cloud.simulator.Timed;
 import hu.mta.sztaki.lpds.cloud.simulator.energy.powermodelling.PowerState;
 import hu.mta.sztaki.lpds.cloud.simulator.io.Repository;
 import hu.mta.sztaki.lpds.cloud.simulator.io.StorageObject;
 import hu.mta.sztaki.lpds.cloud.simulator.util.PowerTransitionGenerator;
-import hu.u_szeged.inf.fog.simulator.availabilityzone.AvailabilityZone;
-import hu.u_szeged.inf.fog.simulator.availabilityzone.Region;
-import hu.u_szeged.inf.fog.simulator.availabilityzone.Region.SelectionStrategy;
-import hu.u_szeged.inf.fog.simulator.availabilityzone.Locations;
-import hu.u_szeged.inf.fog.simulator.availabilityzone.PhysicalMachineWithLocation;
+import hu.u_szeged.inf.fog.simulator.availabilityzone.*;
 
-public class ZoneSimulation_MultipleUsersAndFiles {
+public class test_ZoneSimulation_MultipleUsersAndFiles {
+
+    // Global Random instance with a fixed seed for reproducibility
+    private static final long SEED = 12345L; // You can change this seed for different random behaviors
+    private static final Random GLOBAL_RANDOM = new Random(SEED);
 
     public static void main(String[] args) throws Exception {
         System.out.println("Starting AWS-like Availability Zone simulation...");
@@ -28,13 +22,11 @@ public class ZoneSimulation_MultipleUsersAndFiles {
                 .generateTransitions(0.065, 1.475, 2.0, 1, 2);
 
         List<AvailabilityZone> zones = new ArrayList<>();
-        List<Repository> allRepositories = new ArrayList<>(); // To maintain all repositories
+        List<Repository> allRepositories = new ArrayList<>();
 
-        // Generate AZs with repositories and physical machines
-        Random random = new Random();
         System.out.println("========================== Creating and turning on AZ machines ==========================");
         for (int i = 0; i < 10; i++) {
-            Locations.Location randomLocation = Locations.getRandomLocation();
+            Locations.Location randomLocation = Locations.getRandomLocation(GLOBAL_RANDOM);
 
             String repoName = randomLocation.getCity() + " Repo";
             Repository repo = new Repository(4_294_967_296L, repoName, 3250, 3250, 3250,
@@ -50,15 +42,14 @@ public class ZoneSimulation_MultipleUsersAndFiles {
             }
             System.out.println("PM State after creation and turning on: " + pm.getState());
             zones.add(new AvailabilityZone(randomLocation.getCity(), repo, pm, randomLocation));
-            allRepositories.add(repo); // Add to the global repository list
+            allRepositories.add(repo);
         }
-        System.out
-                .println("========================== Creating and turning on User machines ==========================");
-        // Generate 10 users with their own repositories
+
+        System.out.println("========================== Creating and turning on User machines ==========================");
         List<Repository> userRepos = new ArrayList<>();
         List<PhysicalMachineWithLocation> userPMs = new ArrayList<>();
         for (int i = 1; i <= 10; i++) {
-            Locations.Location randomLocation = Locations.getRandomLocation();
+            Locations.Location randomLocation = Locations.getRandomLocation(GLOBAL_RANDOM);
             String userRepoName = "UserRepo" + i;
             Repository userRepo = new Repository(4_294_967_296L, userRepoName, 3250, 3250, 3250,
                     new HashMap<>(), transitions.get(PowerTransitionGenerator.PowerStateKind.storage),
@@ -75,78 +66,69 @@ public class ZoneSimulation_MultipleUsersAndFiles {
             System.out.println("User PM " + i + " State after creation and turning on: " + userPm.getState());
             userRepos.add(userRepo);
             userPMs.add(userPm);
-            allRepositories.add(userRepo); // Add to the global repository list
+            allRepositories.add(userRepo);
         }
 
         // Assign random latencies between all repositories
-        assignLatencies(allRepositories, random);
+        assignLatencies(allRepositories, GLOBAL_RANDOM);
 
-        Region region = new Region(zones, SelectionStrategy.RANDOM);
+        Region region = new Region(zones, Region.SelectionStrategy.NEAREST);
 
         // Generate 100 files randomly
         List<StorageObject> files = new ArrayList<>();
         for (int i = 1; i <= 100; i++) {
-            StorageObject file = new StorageObject("File" + i, random.nextInt(10_000) + 1_000L, false);
+            StorageObject file = new StorageObject("File" + i, GLOBAL_RANDOM.nextInt(10_000) + 1_000L, false);
             files.add(file);
         }
+
         System.out.println(
                 "========================== Asign 10 random files to 10 random users and simulate write and read ==========================");
-        // Randomly assign files to users and simulate read/write operations
         for (int i = 0; i < 10; i++) {
-            PhysicalMachineWithLocation randomUserPm = userPMs.get(random.nextInt(userPMs.size()));
-            StorageObject randomFileToWrite = files.get(random.nextInt(files.size()));
+            PhysicalMachineWithLocation randomUserPm = userPMs.get(GLOBAL_RANDOM.nextInt(userPMs.size()));
+            StorageObject randomFileToWrite = files.get(GLOBAL_RANDOM.nextInt(files.size()));
 
-            // Register file in the user's repository
             if (!randomUserPm.localDisk.registerObject(randomFileToWrite)) {
                 System.err.println("Failed to register object " + randomFileToWrite.id + " in "
                         + randomUserPm.getLocation().getCity());
                 continue;
             }
-            // Perform a write operation
             region.handleWriteRequest(randomUserPm, randomFileToWrite);
 
-            // Wait until the write operation completes across all AZs
             while (!region.isDataAvailableInAllAZs(randomFileToWrite)) {
                 Timed.simulateUntilLastEvent();
             }
 
             List<StorageObject> availableStorageObjects = region.getAvailableObjects();
             StorageObject randomFileToRead = availableStorageObjects
-                    .get(random.nextInt(availableStorageObjects.size()));
-            // Perform a read operation
+                    .get(GLOBAL_RANDOM.nextInt(availableStorageObjects.size()));
             long readCompletionTime = region.handleReadRequest(randomUserPm, randomFileToRead,
-                    SelectionStrategy.NEAREST);
+                    Region.SelectionStrategy.LEAST_LOADED);
 
-            // Wait for the read to complete
             while (Timed.getFireCount() < readCompletionTime) {
                 Timed.simulateUntilLastEvent();
             }
         }
-        System.out.println(
-                "========================== Turn off a random AZ in the Region ==========================");
-        // Simulate disabling a random AZ and retrying reads
+
+        System.out.println("========================== Turn off a random AZ in the Region ==========================");
         if (!zones.isEmpty()) {
-            // Select a random index from the zones list
-            int randomIndex = new Random().nextInt(zones.size());
+            int randomIndex = GLOBAL_RANDOM.nextInt(zones.size());
             AvailabilityZone randomZone = zones.get(randomIndex);
 
-            // Turn off the selected AZ
             randomZone.getPm().switchoff(null);
             System.out.println("\n" + randomZone.getName() + " AZ has been made unavailable.");
         } else {
             System.out.println("No availability zones available to disable.");
         }
 
-        // Retry reads after disabling AZ
         System.out.println(
                 "========================== Fire 10 concurrent reading from the AZ by random users and files ==========================");
-        for (int i = 0; i < 10; i++) { // Retry for 10 random files
-            PhysicalMachineWithLocation randomUserPm = userPMs.get(random.nextInt(userPMs.size()));
+        for (int i = 0; i < 10; i++) {
+            PhysicalMachineWithLocation randomUserPm = userPMs.get(GLOBAL_RANDOM.nextInt(userPMs.size()));
             List<StorageObject> availableStorageObjects = region.getAvailableObjects();
             StorageObject randomFileToRead = availableStorageObjects
-                    .get(random.nextInt(availableStorageObjects.size()));
+                    .get(GLOBAL_RANDOM.nextInt(availableStorageObjects.size()));
 
-            region.handleReadRequest(randomUserPm, randomFileToRead, SelectionStrategy.NEAREST);
+            region.handleReadRequest(randomUserPm, randomFileToRead, Region.SelectionStrategy.LEAST_LOADED);
             Timed.simulateUntilLastEvent();
         }
 
@@ -162,5 +144,4 @@ public class ZoneSimulation_MultipleUsersAndFiles {
             }
         }
     }
-
 }

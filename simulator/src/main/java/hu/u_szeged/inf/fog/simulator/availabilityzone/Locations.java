@@ -4,6 +4,7 @@
 package hu.u_szeged.inf.fog.simulator.availabilityzone;
 
 import java.security.SecureRandom;
+import java.util.Random;
 
 public class Locations {
     // Predefined list of cities with their corresponding latitude and longitude
@@ -64,9 +65,11 @@ public class Locations {
      * @return a {@link Location} object representing a randomly selected location.
      */
 
-    public static Location getRandomLocation() {
-        SecureRandom secureRandom = new SecureRandom();
-        int index = secureRandom.nextInt(LOCATIONS.length);
+    public static Location getRandomLocation(Random random) {
+        // If no seed is provided, use SecureRandom for randomness
+        Random effectiveRandom = (random != null) ? random : new SecureRandom();
+
+        int index = effectiveRandom.nextInt(LOCATIONS.length);
 
         Object[] locationData = LOCATIONS[index];
         return new Location((String) locationData[0], (double) locationData[1], (double) locationData[2]);

@@ -164,19 +164,6 @@ public class Region {
     }
 
     /**
-     * Finds availability zones missing a specific data object.
-     *
-     * @param dataId the ID of the data object to check
-     * @return a list of availability zones missing the data object.
-     */
-    public List<AvailabilityZone> getZonesMissingData(String dataId) {
-        return zones.stream()
-                .filter(zone -> zone.isAvailable() && zone.getRepository().lookup(dataId) == null)
-                .distinct()
-                .collect(Collectors.toList());
-    }
-
-    /**
      * Handles a write request for a data object, ensuring redundancy across
      * availability zones.
      *
